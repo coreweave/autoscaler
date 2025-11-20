@@ -17,11 +17,12 @@ limitations under the License.
 package unneeded
 
 import (
+	"fmt"
 	"reflect"
 	"time"
 
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
-	"k8s.io/autoscaler/cluster-autoscaler/context"
+	ca_context "k8s.io/autoscaler/cluster-autoscaler/context"
 	"k8s.io/autoscaler/cluster-autoscaler/core/scaledown"
 	"k8s.io/autoscaler/cluster-autoscaler/core/scaledown/eligibility"
 	"k8s.io/autoscaler/cluster-autoscaler/core/scaledown/resource"
@@ -30,6 +31,7 @@ import (
 	"k8s.io/autoscaler/cluster-autoscaler/simulator"
 	"k8s.io/autoscaler/cluster-autoscaler/utils"
 	kube_util "k8s.io/autoscaler/cluster-autoscaler/utils/kubernetes"
+	"k8s.io/autoscaler/cluster-autoscaler/utils/taints"
 
 	apiv1 "k8s.io/api/core/v1"
 	klog "k8s.io/klog/v2"
@@ -63,19 +65,85 @@ func NewNodes(sdtg scaleDownTimeGetter, limitsFinder *resource.LimitsFinder) *No
 	}
 }
 
+// LoadFromExistingTaints loads any existing DeletionCandidateTaint taints from the kubernetes cluster. given a TTL for the taint
+func (n *Nodes) LoadFromExistingTaints(listerRegistry kube_util.ListerRegistry, ts time.Time, DeletionCandidateStalenessTTL time.Duration) error {
+	allNodes, err := listerRegistry.AllNodeLister().List()
+	if err != nil {
+		return fmt.Errorf("failed to list nodes when initializing unneeded nodes: %v", err)
+	}
+
+	var nodesWithTaints []simulator.NodeToBeRemoved
+	for _, node := range allNodes {
+		if since, err := taints.GetDeletionCandidateTime(node); err == nil && since != nil {
+			if err != nil {
+				klog.Errorf("Failed to get pods to move for node %s: %v", node.Name, err)
+				continue
+			}
+			if since.Add(DeletionCandidateStalenessTTL).Before(ts) {
+				klog.V(4).Infof("Skipping node %s with deletion candidate taint from %s, since it is older than TTL %s", node.Name, since.String(), DeletionCandidateStalenessTTL.String())
+				continue
+			}
+			nodeToBeRemoved := simulator.NodeToBeRemoved{
+				Node: node,
+			}
+			nodesWithTaints = append(nodesWithTaints, nodeToBeRemoved)
+			klog.V(4).Infof("Found node %s with deletion candidate taint from %s", node.Name, since.String())
+		}
+	}
+
+	if len(nodesWithTaints) > 0 {
+		klog.V(1).Infof("Initializing unneeded nodes with %d nodes that have deletion candidate taints", len(nodesWithTaints))
+		n.initialize(nodesWithTaints, ts)
+	}
+
+	return nil
+}
+
+// initialize initializes the Nodes object with the given node list.
+// It sets the initial state of unneeded nodes reflect the taint status of nodes in the cluster.
+// This is in order the avoid state loss between deployment restarts.
+func (n *Nodes) initialize(nodes []simulator.NodeToBeRemoved, ts time.Time) {
+	n.updateInternalState(nodes, ts, func(nn simulator.NodeToBeRemoved) *time.Time {
+		name := nn.Node.Name
+		if since, err := taints.GetDeletionCandidateTime(nn.Node); err == nil {
+			klog.V(4).Infof("Found node %s with deletion candidate taint from %s", name, since.String())
+			return since
+		} else if since == nil {
+			klog.Errorf("Failed to get deletion candidate taint time for node %s: %v", name, err)
+			return nil
+		}
+		klog.V(4).Infof("Found node %s with deletion candidate taint from now", name)
+		return nil
+	})
+}
+
 // Update stores nodes along with a time at which they were found to be
 // unneeded. Previously existing timestamps are preserved.
 func (n *Nodes) Update(nodes []simulator.NodeToBeRemoved, ts time.Time) {
+	n.updateInternalState(nodes, ts, func(nn simulator.NodeToBeRemoved) *time.Time {
+		return nil
+	})
+}
+
+func (n *Nodes) updateInternalState(nodes []simulator.NodeToBeRemoved, ts time.Time, timestampGetter func(simulator.NodeToBeRemoved) *time.Time) {
 	updated := make(map[string]*node, len(nodes))
 	for _, nn := range nodes {
 		name := nn.Node.Name
-		updated[name] = &node{
-			ntbr: nn,
-		}
 		if val, found := n.byName[name]; found {
-			updated[name].since = val.since
+			updated[name] = &node{
+				ntbr:  nn,
+				since: val.since,
+			}
+		} else if existingts := timestampGetter(nn); existingts != nil {
+			updated[name] = &node{
+				ntbr:  nn,
+				since: *existingts,
+			}
 		} else {
-			updated[name].since = ts
+			updated[name] = &node{
+				ntbr:  nn,
+				since: ts,
+			}
 		}
 	}
 	n.byName = updated
@@ -118,13 +186,13 @@ func (n *Nodes) Drop(node string) {
 // RemovableAt returns all nodes that can be removed at a given time, divided
 // into empty and non-empty node lists, as well as a list of nodes that were
 // unneeded, but are not removable, annotated by reason.
-func (n *Nodes) RemovableAt(context *context.AutoscalingContext, scaleDownContext nodes.ScaleDownContext, ts time.Time) (empty, needDrain []simulator.NodeToBeRemoved, unremovable []simulator.UnremovableNode) {
-	nodeGroupSize := utils.GetNodeGroupSizeMap(context.CloudProvider)
+func (n *Nodes) RemovableAt(autoscalingCtx *ca_context.AutoscalingContext, scaleDownContext nodes.ScaleDownContext, ts time.Time) (empty, needDrain []simulator.NodeToBeRemoved, unremovable []simulator.UnremovableNode) {
+	nodeGroupSize := utils.GetNodeGroupSizeMap(autoscalingCtx.CloudProvider)
 	emptyNodes, drainNodes := n.splitEmptyAndNonEmptyNodes()
 
 	for nodeName, v := range emptyNodes {
 		klog.V(2).Infof("%s was unneeded for %s", nodeName, ts.Sub(v.since).String())
-		if r := n.unremovableReason(context, scaleDownContext, v, ts, nodeGroupSize); r != simulator.NoReason {
+		if r := n.unremovableReason(autoscalingCtx, scaleDownContext, v, ts, nodeGroupSize); r != simulator.NoReason {
 			unremovable = append(unremovable, simulator.UnremovableNode{Node: v.ntbr.Node, Reason: r})
 			continue
 		}
@@ -132,7 +200,7 @@ func (n *Nodes) RemovableAt(context *context.AutoscalingContext, scaleDownContex
 	}
 	for nodeName, v := range drainNodes {
 		klog.V(2).Infof("%s was unneeded for %s", nodeName, ts.Sub(v.since).String())
-		if r := n.unremovableReason(context, scaleDownContext, v, ts, nodeGroupSize); r != simulator.NoReason {
+		if r := n.unremovableReason(autoscalingCtx, scaleDownContext, v, ts, nodeGroupSize); r != simulator.NoReason {
 			unremovable = append(unremovable, simulator.UnremovableNode{Node: v.ntbr.Node, Reason: r})
 			continue
 		}
@@ -141,7 +209,7 @@ func (n *Nodes) RemovableAt(context *context.AutoscalingContext, scaleDownContex
 	return
 }
 
-func (n *Nodes) unremovableReason(context *context.AutoscalingContext, scaleDownContext nodes.ScaleDownContext, v *node, ts time.Time, nodeGroupSize map[string]int) simulator.UnremovableReason {
+func (n *Nodes) unremovableReason(autoscalingCtx *ca_context.AutoscalingContext, scaleDownContext nodes.ScaleDownContext, v *node, ts time.Time, nodeGroupSize map[string]int) simulator.UnremovableReason {
 	node := v.ntbr.Node
 	// Check if node is marked with no scale down annotation.
 	if eligibility.HasNoScaleDownAnnotation(node) {
@@ -150,7 +218,7 @@ func (n *Nodes) unremovableReason(context *context.AutoscalingContext, scaleDown
 	}
 	ready, _, _ := kube_util.GetReadinessState(node)
 
-	nodeGroup, err := context.CloudProvider.NodeGroupForNode(node)
+	nodeGroup, err := autoscalingCtx.CloudProvider.NodeGroupForNode(node)
 	if err != nil {
 		klog.Errorf("Error while checking node group for %s: %v", node.Name, err)
 		return simulator.UnexpectedError
@@ -186,7 +254,7 @@ func (n *Nodes) unremovableReason(context *context.AutoscalingContext, scaleDown
 		return reason
 	}
 
-	resourceDelta, err := n.limitsFinder.DeltaForNode(context, node, nodeGroup, scaleDownContext.ResourcesWithLimits)
+	resourceDelta, err := n.limitsFinder.DeltaForNode(autoscalingCtx, node, nodeGroup, scaleDownContext.ResourcesWithLimits)
 	if err != nil {
 		klog.Errorf("Error getting node resources: %v", err)
 		return simulator.UnexpectedError

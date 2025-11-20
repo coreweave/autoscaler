@@ -100,8 +100,6 @@ const (
 const (
 	ScaleDown                  FunctionLabel = "scaleDown"
 	ScaleDownNodeDeletion      FunctionLabel = "scaleDown:nodeDeletion"
-	ScaleDownFindNodesToRemove FunctionLabel = "scaleDown:findNodesToRemove"
-	ScaleDownMiscOperations    FunctionLabel = "scaleDown:miscOperations"
 	ScaleDownSoftTaintUnneeded FunctionLabel = "scaleDown:softTaintUnneeded"
 	ScaleUp                    FunctionLabel = "scaleUp"
 	BuildPodEquivalenceGroups  FunctionLabel = "scaleUp:buildPodEquivalenceGroups"
@@ -427,6 +425,14 @@ var (
 			Buckets:   k8smetrics.ExponentialBuckets(1, 2, 6), // 1, 2, 4, ..., 32
 		}, []string{"instance_type", "cpu_count", "namespace_count"},
 	)
+
+	maxNodeSkipEvalDurationSeconds = k8smetrics.NewGauge(
+		&k8smetrics.GaugeOpts{
+			Namespace: caNamespace,
+			Name:      "max_node_skip_eval_duration_seconds",
+			Help:      "Maximum evaluation time of a node being skipped during ScaleDown.",
+		},
+	)
 )
 
 // RegisterAll registers all metrics.
@@ -463,6 +469,7 @@ func RegisterAll(emitPerNodeGroupMetrics bool) {
 	legacyregistry.MustRegister(nodeTaintsCount)
 	legacyregistry.MustRegister(inconsistentInstancesMigsCount)
 	legacyregistry.MustRegister(binpackingHeterogeneity)
+	legacyregistry.MustRegister(maxNodeSkipEvalDurationSeconds)
 
 	if emitPerNodeGroupMetrics {
 		legacyregistry.MustRegister(nodesGroupMinNodes)
@@ -749,4 +756,10 @@ func UpdateInconsistentInstancesMigsCount(migCount int) {
 // considered in a single binpacking estimation.
 func ObserveBinpackingHeterogeneity(instanceType, cpuCount, namespaceCount string, pegCount int) {
 	binpackingHeterogeneity.WithLabelValues(instanceType, cpuCount, namespaceCount).Observe(float64(pegCount))
+}
+
+// ObserveMaxNodeSkipEvalDurationSeconds records the longest time during which node was skipped during ScaleDown.
+// If a node is skipped multiple times consecutively, we store only the earliest timestamp.
+func ObserveMaxNodeSkipEvalDurationSeconds(duration time.Duration) {
+	maxNodeSkipEvalDurationSeconds.Set(duration.Seconds())
 }

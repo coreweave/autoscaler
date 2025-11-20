@@ -230,6 +230,9 @@ type AutoscalingOptions struct {
 	BalancingLabels []string
 	// AWSUseStaticInstanceList tells if AWS cloud provider use static instance type list or dynamically fetch from remote APIs.
 	AWSUseStaticInstanceList bool
+	// ScaleFromUnschedulable tells the autoscaler to ignore a node's .spec.unschedulable field when creating a node template.
+	// Specifically, this will cause the autoscaler to set the node template's .spec.unschedulable field to false.
+	ScaleFromUnschedulable bool
 	// GCEOptions contain autoscaling options specific to GCE cloud provider.
 	GCEOptions GCEOptions
 	// KubeClientOpts specify options for kube client
@@ -313,6 +316,8 @@ type AutoscalingOptions struct {
 	DynamicResourceAllocationEnabled bool
 	// ClusterSnapshotParallelism is the maximum parallelism of cluster snapshot creation.
 	ClusterSnapshotParallelism int
+	// PredicateParallelism is the number of goroutines to use for running scheduler predicates.
+	PredicateParallelism int
 	// CheckCapacityProcessorInstance is the name of the processor instance.
 	// Only ProvisioningRequests that define this name in their parameters with the key "processorInstance" will be processed by this CA instance.
 	// It only refers to check capacity ProvisioningRequests, but if not empty, best-effort atomic ProvisioningRequests processing is disabled in this instance.
@@ -342,6 +347,15 @@ type AutoscalingOptions struct {
 	ProactiveScaleupEnabled bool
 	// PodInjectionLimit limits total number of pods while injecting fake pods.
 	PodInjectionLimit int
+	// NodeDeletionCandidateTTL is the maximum time a node can be marked as removable without being deleted.
+	// This is used to prevent nodes from being stuck in the removable state during if the CA deployment becomes inactive.
+	NodeDeletionCandidateTTL time.Duration
+	//CapacitybufferControllerEnabled tells if CA should run default capacity buffer as sub-process or not
+	CapacitybufferControllerEnabled bool
+	// CapacitybufferPodInjectionEnabled tells if CA should injects fake pods for capacity buffers that are ready for provisioning
+	CapacitybufferPodInjectionEnabled bool
+	// MaxNodeSkipEvalTimeTrackerEnabled is used to enabled/disable the tracking of maximum evaluation time of a node being skipped during ScaleDown.
+	MaxNodeSkipEvalTimeTrackerEnabled bool
 }
 
 // KubeClientOptions specify options for kube client

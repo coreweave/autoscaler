@@ -23,18 +23,20 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 	apiv1 "k8s.io/api/core/v1"
 	corev1 "k8s.io/api/core/v1"
-	resourceapi "k8s.io/api/resource/v1beta1"
+	resourceapi "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 	klog "k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 )
@@ -42,6 +44,8 @@ import (
 type unstructuredScalableResource struct {
 	controller         *machineController
 	unstructured       *unstructured.Unstructured
+	infraObj           *unstructured.Unstructured
+	infraMutex         sync.RWMutex
 	maxSize            int
 	minSize            int
 	autoscalingOptions map[string]string
@@ -197,20 +201,29 @@ func (r unstructuredScalableResource) MarkMachineForDeletion(machine *unstructur
 }
 
 func (r unstructuredScalableResource) Labels() map[string]string {
+	allLabels := map[string]string{}
+
+	// get the managed labels from the scalable resource, if they exist.
+	if labels, found, err := unstructured.NestedStringMap(r.unstructured.UnstructuredContent(), "spec", "template", "spec", "metadata", "labels"); found && err == nil {
+		managedLabels := getManagedNodeLabelsFromLabels(labels)
+		allLabels = cloudprovider.JoinStringMaps(allLabels, managedLabels)
+	}
+
+	// annotation labels are supplied as an override to other values, we process them last.
 	annotations := r.unstructured.GetAnnotations()
 	// annotation value of the form "key1=value1,key2=value2"
 	if val, found := annotations[labelsKey]; found {
 		labels := strings.Split(val, ",")
-		kv := make(map[string]string, len(labels))
+		annotationLabels := make(map[string]string, len(labels))
 		for _, label := range labels {
 			split := strings.SplitN(label, "=", 2)
 			if len(split) == 2 {
-				kv[split[0]] = split[1]
+				annotationLabels[split[0]] = split[1]
 			}
 		}
-		return kv
+		allLabels = cloudprovider.JoinStringMaps(allLabels, annotationLabels)
 	}
-	return nil
+	return allLabels
 }
 
 func (r unstructuredScalableResource) Taints() []apiv1.Taint {
@@ -321,6 +334,17 @@ func (r unstructuredScalableResource) InstanceCapacity() (map[corev1.ResourceNam
 	return capacity, nil
 }
 
+// InstanceSystemInfo sets the nodeSystemInfo from the infrastructure reference resource.
+// If the infrastructure reference resource is not found, returns nil.
+func (r unstructuredScalableResource) InstanceSystemInfo() *apiv1.NodeSystemInfo {
+	infraObj, err := r.readInfrastructureReferenceResource()
+	if err != nil || infraObj == nil {
+		return nil
+	}
+	nsiObj := systemInfoFromInfrastructureObject(infraObj)
+	return &nsiObj
+}
+
 func (r unstructuredScalableResource) InstanceResourceSlices(nodeName string) ([]*resourceapi.ResourceSlice, error) {
 	var result []*resourceapi.ResourceSlice
 	driver := r.InstanceDRADriver()
@@ -338,7 +362,7 @@ func (r unstructuredScalableResource) InstanceResourceSlices(nodeName string) ([
 			},
 			Spec: resourceapi.ResourceSliceSpec{
 				Driver:   driver,
-				NodeName: nodeName,
+				NodeName: &nodeName,
 				Pool: resourceapi.ResourcePool{
 					Name: nodeName,
 				},
@@ -347,11 +371,9 @@ func (r unstructuredScalableResource) InstanceResourceSlices(nodeName string) ([
 		for i := 0; i < int(gpuCount.Value()); i++ {
 			device := resourceapi.Device{
 				Name: "gpu-" + strconv.Itoa(i),
-				Basic: &resourceapi.BasicDevice{
-					Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
-						"type": {
-							StringValue: ptr.To(GpuDeviceType),
-						},
+				Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
+					"type": {
+						StringValue: ptr.To(GpuDeviceType),
 					},
 				},
 			}
@@ -392,6 +414,17 @@ func (r unstructuredScalableResource) InstanceDRADriver() string {
 }
 
 func (r unstructuredScalableResource) readInfrastructureReferenceResource() (*unstructured.Unstructured, error) {
+	// Cache w/ lazy loading of the infrastructure reference resource.
+	r.infraMutex.RLock()
+	if r.infraObj != nil {
+		defer r.infraMutex.RUnlock()
+		return r.infraObj, nil
+	}
+	r.infraMutex.RUnlock()
+
+	r.infraMutex.Lock()
+	defer r.infraMutex.Unlock()
+
 	obKind := r.unstructured.GetKind()
 	obName := r.unstructured.GetName()
 
@@ -442,6 +475,8 @@ func (r unstructuredScalableResource) readInfrastructureReferenceResource() (*un
 		return nil, err
 	}
 
+	r.infraObj = infra
+
 	return infra, nil
 }
 
@@ -477,6 +512,25 @@ func resourceCapacityFromInfrastructureObject(infraobj *unstructured.Unstructure
 	}
 
 	return capacity
+}
+
+func systemInfoFromInfrastructureObject(infraobj *unstructured.Unstructured) apiv1.NodeSystemInfo {
+	nsi := apiv1.NodeSystemInfo{}
+	infransi, found, err := unstructured.NestedStringMap(infraobj.Object, "status", "nodeInfo")
+	if !found || err != nil {
+		return nsi
+	}
+
+	for k, v := range infransi {
+		switch k {
+		case "architecture":
+			nsi.Architecture = v
+		case "operatingSystem":
+			nsi.OperatingSystem = v
+		}
+	}
+
+	return nsi
 }
 
 // adapted from https://github.com/kubernetes/kubernetes/blob/release-1.25/pkg/util/taints/taints.go#L39
