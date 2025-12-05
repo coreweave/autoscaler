@@ -18,9 +18,12 @@ package coreweave
 
 import (
 	"fmt"
+	"math/rand"
 	"sync"
 
 	apiv1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 	"k8s.io/autoscaler/cluster-autoscaler/config"
 	"k8s.io/autoscaler/cluster-autoscaler/simulator/framework"
@@ -123,9 +126,114 @@ func (ng *CoreWeaveNodeGroup) Nodes() ([]cloudprovider.Instance, error) {
 }
 
 // TemplateNodeInfo returns a template NodeInfo for the node group.
-// This method is not implemented for CoreWeaveNodeGroup.
+// This is used by the autoscaler to simulate what a new node would look like
+// when scaling from zero or when no nodes currently exist in the node group.
 func (ng *CoreWeaveNodeGroup) TemplateNodeInfo() (*framework.NodeInfo, error) {
-	return nil, cloudprovider.ErrNotImplemented
+	// Get the instance type from the node pool
+	instanceTypeName := ng.nodepool.GetInstanceType()
+	if instanceTypeName == "" {
+		return nil, fmt.Errorf("node pool %s has no instance type defined", ng.Name)
+	}
+
+	// Look up the instance type from the hardcoded map
+	instanceType, err := GetInstanceType(instanceTypeName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get instance type info for %s: %v", instanceTypeName, err)
+	}
+
+	// Build the template node
+	node, err := ng.buildNodeFromInstanceType(instanceTypeName, instanceType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build node from instance type: %v", err)
+	}
+
+	// Create the NodeInfo with the template node
+	nodeInfo := framework.NewNodeInfo(node, nil)
+
+	return nodeInfo, nil
+}
+
+// buildNodeFromInstanceType creates a template Node from the instance type and node pool configuration.
+func (ng *CoreWeaveNodeGroup) buildNodeFromInstanceType(instanceTypeName string, instanceType *InstanceType) (*apiv1.Node, error) {
+	nodeName := fmt.Sprintf("%s-template-%d", ng.Name, rand.Int63())
+
+	capacity := ng.buildResourceList(instanceType)
+
+	// Build node labels
+	labels := ng.buildNodeLabels(nodeName, instanceTypeName, instanceType)
+
+	// Build node taints
+	taints := ng.nodepool.GetNodeTaints()
+
+	node := &apiv1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   nodeName,
+			Labels: labels,
+		},
+		Status: apiv1.NodeStatus{
+			// Capacity and Allocatable are initially set to the same value, ignoring system pods
+			Capacity:    capacity,
+			Allocatable: capacity,
+			Conditions:  cloudprovider.BuildReadyConditions(),
+		},
+		Spec: apiv1.NodeSpec{
+			Taints: taints,
+		},
+	}
+
+	return node, nil
+}
+
+// buildResourceList creates a ResourceList from the instance type specifications.
+func (ng *CoreWeaveNodeGroup) buildResourceList(instanceType *InstanceType) apiv1.ResourceList {
+	resources := apiv1.ResourceList{}
+
+	// CPU
+	resources[apiv1.ResourceCPU] = *resource.NewQuantity(instanceType.VCPU, resource.DecimalSI)
+
+	// Memory - stored in kibibytes (Ki), convert to bytes for template
+	resources[apiv1.ResourceMemory] = *resource.NewQuantity(instanceType.MemoryKi*1024, resource.BinarySI)
+
+	// Ephemeral storage - stored in mebibytes (Mi), convert to bytes for template
+	if instanceType.EphemeralStorageMi > 0 {
+		resources[apiv1.ResourceEphemeralStorage] = *resource.NewQuantity(instanceType.EphemeralStorageMi*1024*1024, resource.BinarySI)
+	}
+
+	// GPU - use nvidia.com/gpu as the resource name
+	if instanceType.GPU > 0 {
+		resources["nvidia.com/gpu"] = *resource.NewQuantity(instanceType.GPU, resource.DecimalSI)
+	}
+
+	// Default to max of 110 pods if not specified (Kubernetes default)
+	resources[apiv1.ResourcePods] = *resource.NewQuantity(110, resource.DecimalSI)
+	if instanceType.MaxPods > 0 {
+		resources[apiv1.ResourcePods] = *resource.NewQuantity(instanceType.MaxPods, resource.DecimalSI)
+	}
+
+	return resources
+}
+
+// buildNodeLabels creates the labels for a template node.
+func (ng *CoreWeaveNodeGroup) buildNodeLabels(nodeName, instanceTypeName string, instanceType *InstanceType) map[string]string {
+	labels := make(map[string]string)
+
+	// Standard Kubernetes labels
+	labels[apiv1.LabelInstanceTypeStable] = instanceTypeName
+	labels[apiv1.LabelArchStable] = cloudprovider.DefaultArch
+	if instanceType.Architecture != "" {
+		labels[apiv1.LabelArchStable] = instanceType.Architecture
+	}
+	labels[apiv1.LabelOSStable] = cloudprovider.DefaultOS
+	labels[apiv1.LabelHostname] = nodeName
+
+	labels[coreWeaveNodePoolUID] = ng.nodepool.GetUID()
+
+	// Add custom labels from NodePool spec
+	for k, v := range ng.nodepool.GetNodeLabels() {
+		labels[k] = v
+	}
+
+	return labels
 }
 
 // Exist checks if the node group exists.
