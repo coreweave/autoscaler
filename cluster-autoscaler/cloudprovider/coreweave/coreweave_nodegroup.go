@@ -27,6 +27,7 @@ import (
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 	"k8s.io/autoscaler/cluster-autoscaler/config"
 	"k8s.io/autoscaler/cluster-autoscaler/simulator/framework"
+	"k8s.io/autoscaler/cluster-autoscaler/utils/gpu"
 	"k8s.io/klog/v2"
 )
 
@@ -199,7 +200,7 @@ func (ng *CoreWeaveNodeGroup) buildResourceList(instanceType *InstanceType) apiv
 
 	// GPU - use nvidia.com/gpu as the resource name
 	if instanceType.GPU > 0 {
-		resources["nvidia.com/gpu"] = *resource.NewQuantity(instanceType.GPU, resource.DecimalSI)
+		resources[gpu.ResourceNvidiaGPU] = *resource.NewQuantity(instanceType.GPU, resource.DecimalSI)
 	}
 
 	// Default to max of 110 pods if not specified (Kubernetes default)

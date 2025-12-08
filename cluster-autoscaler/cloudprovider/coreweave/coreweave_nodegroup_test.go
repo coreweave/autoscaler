@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"k8s.io/autoscaler/cluster-autoscaler/utils/gpu"
 
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -292,7 +293,7 @@ func TestBuildResourceList(t *testing.T) {
 				apiv1.ResourceMemory:           *resource.NewQuantity(1055337468*1024, resource.BinarySI),
 				apiv1.ResourceEphemeralStorage: *resource.NewQuantity(7499362648*1024, resource.BinarySI),
 				apiv1.ResourcePods:             *resource.NewQuantity(110, resource.DecimalSI),
-				"nvidia.com/gpu":               *resource.NewQuantity(8, resource.DecimalSI),
+				gpu.ResourceNvidiaGPU:          *resource.NewQuantity(8, resource.DecimalSI),
 			},
 		},
 		"custom max pods and zero storage": {
