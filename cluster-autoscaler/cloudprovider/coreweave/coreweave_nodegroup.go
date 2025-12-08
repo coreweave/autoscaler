@@ -159,10 +159,8 @@ func (ng *CoreWeaveNodeGroup) buildNodeFromInstanceType(instanceTypeName string,
 
 	capacity := ng.buildResourceList(instanceType)
 
-	// Build node labels
 	labels := ng.buildNodeLabels(nodeName, instanceTypeName, instanceType)
 
-	// Build node taints
 	taints := ng.nodepool.GetNodeTaints()
 
 	node := &apiv1.Node{
@@ -171,7 +169,7 @@ func (ng *CoreWeaveNodeGroup) buildNodeFromInstanceType(instanceTypeName string,
 			Labels: labels,
 		},
 		Status: apiv1.NodeStatus{
-			// Capacity and Allocatable are initially set to the same value, ignoring system pods
+			// Capacity and Allocatable are set to the same value, ignoring system pods
 			Capacity:    capacity,
 			Allocatable: capacity,
 			Conditions:  cloudprovider.BuildReadyConditions(),
@@ -194,9 +192,9 @@ func (ng *CoreWeaveNodeGroup) buildResourceList(instanceType *InstanceType) apiv
 	// Memory - stored in kibibytes (Ki), convert to bytes for template
 	resources[apiv1.ResourceMemory] = *resource.NewQuantity(instanceType.MemoryKi*1024, resource.BinarySI)
 
-	// Ephemeral storage - stored in mebibytes (Mi), convert to bytes for template
-	if instanceType.EphemeralStorageMi > 0 {
-		resources[apiv1.ResourceEphemeralStorage] = *resource.NewQuantity(instanceType.EphemeralStorageMi*1024*1024, resource.BinarySI)
+	// Ephemeral storage - stored in kibibytes (Ki), convert to bytes for template
+	if instanceType.EphemeralStorageKi > 0 {
+		resources[apiv1.ResourceEphemeralStorage] = *resource.NewQuantity(instanceType.EphemeralStorageKi*1024, resource.BinarySI)
 	}
 
 	// GPU - use nvidia.com/gpu as the resource name
@@ -217,7 +215,6 @@ func (ng *CoreWeaveNodeGroup) buildResourceList(instanceType *InstanceType) apiv
 func (ng *CoreWeaveNodeGroup) buildNodeLabels(nodeName, instanceTypeName string, instanceType *InstanceType) map[string]string {
 	labels := make(map[string]string)
 
-	// Standard Kubernetes labels
 	labels[apiv1.LabelInstanceTypeStable] = instanceTypeName
 	labels[apiv1.LabelArchStable] = cloudprovider.DefaultArch
 	if instanceType.Architecture != "" {
@@ -228,7 +225,6 @@ func (ng *CoreWeaveNodeGroup) buildNodeLabels(nodeName, instanceTypeName string,
 
 	labels[coreWeaveNodePoolUID] = ng.nodepool.GetUID()
 
-	// Add custom labels from NodePool spec
 	for k, v := range ng.nodepool.GetNodeLabels() {
 		labels[k] = v
 	}

@@ -27,8 +27,8 @@ type InstanceType struct {
 	MemoryKi int64
 	// GPU is the number of GPUs
 	GPU int64
-	// EphemeralStorageMi is the amount of ephemeral storage in mebibytes (1 Mi = 1024 Ki)
-	EphemeralStorageMi int64
+	// EphemeralStorageKi is the amount of ephemeral storage in kibibytes (1 Ki = 1024 bytes)
+	EphemeralStorageKi int64
 	// Architecture is the CPU architecture (e.g., "amd64", "arm64")
 	Architecture string
 	// MaxPods is the maximum number of pods that can run on this instance type
@@ -38,11 +38,131 @@ type InstanceType struct {
 // InstanceTypes is a map of CoreWeave instance type names to their specifications.
 // This map should be populated with the actual instance types supported by CoreWeave.
 var InstanceTypes = map[string]*InstanceType{
+	"cd-gp-a192-genoa": {
+		VCPU:               192,
+		MemoryKi:           1583811548,
+		GPU:                0,
+		EphemeralStorageKi: 7499230528,
+		Architecture:       "amd64",
+		MaxPods:            110,
+	},
+	"cd-gp-l-a192-genoa": {
+		VCPU:               192,
+		MemoryKi:           1583796048,
+		GPU:                0,
+		EphemeralStorageKi: 30003181568,
+		Architecture:       "amd64",
+		MaxPods:            110,
+	},
+	"cd-gp-i64-erapids": {
+		VCPU:               64,
+		MemoryKi:           526674536,
+		GPU:                0,
+		EphemeralStorageKi: 7499230528,
+		Architecture:       "amd64",
+		MaxPods:            110,
+	},
+	"cd-gp-l-i64-erapids": {
+		VCPU:               64,
+		MemoryKi:           526668108,
+		GPU:                0,
+		EphemeralStorageKi: 15000547328,
+		Architecture:       "amd64",
+		MaxPods:            110,
+	},
+	"cd-gp-i96-icelake": {
+		VCPU:               96,
+		MemoryKi:           394209340,
+		GPU:                0,
+		EphemeralStorageKi: 6248987968,
+		Architecture:       "amd64",
+		MaxPods:            110,
+	},
+	"cd-hc-a384ib-genoa": {
+		VCPU:               384,
+		MemoryKi:           1583672504,
+		GPU:                0,
+		EphemeralStorageKi: 30003181568,
+		Architecture:       "amd64",
+		MaxPods:            110,
+	},
+	"cd-hc-a384-genoa": {
+		VCPU:               384,
+		MemoryKi:           1583673336,
+		GPU:                0,
+		EphemeralStorageKi: 30003181568,
+		Architecture:       "amd64",
+		MaxPods:            300,
+	},
+	"cd-hp-a96-genoa": {
+		VCPU:               96,
+		MemoryKi:           791111968,
+		GPU:                0,
+		EphemeralStorageKi: 7499230528,
+		Architecture:       "amd64",
+		MaxPods:            110,
+	},
+	"gd-1xgh200": {
+		VCPU:               72,
+		MemoryKi:           600218240,
+		GPU:                1,
+		EphemeralStorageKi: 7499362648,
+		Architecture:       "arm64",
+		MaxPods:            110,
+	},
+	"gd-8xa100-i128": {
+		VCPU:               128,
+		MemoryKi:           2112249840,
+		GPU:                8,
+		EphemeralStorageKi: 7499362648,
+		Architecture:       "amd64",
+		MaxPods:            110,
+	},
+	"gd-8xh100ib-i128": {
+		VCPU:               128,
+		MemoryKi:           2112109804,
+		GPU:                8,
+		EphemeralStorageKi: 30003181568,
+		Architecture:       "amd64",
+		MaxPods:            110,
+	},
+	"gd-8xh200ib-i128": {
+		VCPU:               128,
+		MemoryKi:           2112109800,
+		GPU:                8,
+		EphemeralStorageKi: 30003181568,
+		Architecture:       "amd64",
+		MaxPods:            110,
+	},
+	"gd-8xl40-i128": {
+		VCPU:               128,
+		MemoryKi:           1055335508,
+		GPU:                8,
+		EphemeralStorageKi: 7499362648,
+		Architecture:       "amd64",
+		MaxPods:            110,
+	},
+	"gd-8xl40s-i128": {
+		VCPU:               128,
+		MemoryKi:           1055337468,
+		GPU:                8,
+		EphemeralStorageKi: 7499362648,
+		Architecture:       "amd64",
+		MaxPods:            110,
+	},
 	"turin-gp-l": {
 		VCPU:               192,
-		MemoryKi:           1583282428,
+		MemoryKi:           1583282436,
 		GPU:                0,
-		EphemeralStorageMi: 29299982,
+		EphemeralStorageKi: 30003181568,
+		Architecture:       "amd64",
+		MaxPods:            110,
+	},
+	"turin-gp": {
+		VCPU:               192,
+		MemoryKi:           1583297960,
+		GPU:                0,
+		EphemeralStorageKi: 7499230528,
 		Architecture:       "amd64",
 		MaxPods:            110,
 	},
