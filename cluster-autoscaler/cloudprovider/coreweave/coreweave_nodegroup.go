@@ -130,25 +130,23 @@ func (ng *CoreWeaveNodeGroup) Nodes() ([]cloudprovider.Instance, error) {
 // This is used by the autoscaler to simulate what a new node would look like
 // when scaling from zero or when no nodes currently exist in the node group.
 func (ng *CoreWeaveNodeGroup) TemplateNodeInfo() (*framework.NodeInfo, error) {
-	// Get the instance type from the node pool
 	instanceTypeName := ng.nodepool.GetInstanceType()
 	if instanceTypeName == "" {
 		return nil, fmt.Errorf("node pool %s has no instance type defined", ng.Name)
 	}
 
-	// Look up the instance type from the hardcoded map
 	instanceType, err := GetInstanceType(instanceTypeName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get instance type info for %s: %v", instanceTypeName, err)
 	}
 
-	// Build the template node
 	node, err := ng.buildNodeFromInstanceType(instanceTypeName, instanceType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build node from instance type: %v", err)
 	}
 
-	// Create the NodeInfo with the template node
+	// The second parameter is for ResourceSlices when using DRA. CoreWeave only DRA for rack based instances which are
+	// not supported by the Cluster Autoscaler at this time
 	nodeInfo := framework.NewNodeInfo(node, nil)
 
 	return nodeInfo, nil
@@ -222,9 +220,9 @@ func (ng *CoreWeaveNodeGroup) buildNodeLabels(nodeName, instanceTypeName string,
 		labels[apiv1.LabelArchStable] = instanceType.Architecture
 	}
 	labels[apiv1.LabelOSStable] = cloudprovider.DefaultOS
-	labels[apiv1.LabelHostname] = nodeName
 
 	labels[coreWeaveNodePoolUID] = ng.nodepool.GetUID()
+	labels[coreWeaveNodePoolName] = ng.nodepool.GetName()
 
 	for k, v := range ng.nodepool.GetNodeLabels() {
 		labels[k] = v

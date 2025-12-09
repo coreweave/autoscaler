@@ -225,7 +225,7 @@ func (np *CoreWeaveNodePool) GetNodeTaints() []apiv1.Taint {
 		return []apiv1.Taint{} // Return empty slice if not found
 	}
 
-	var taints []apiv1.Taint
+	taints := make([]apiv1.Taint, 0, len(taintsRaw))
 	for _, t := range taintsRaw {
 		taintMap, ok := t.(map[string]interface{})
 		if !ok {

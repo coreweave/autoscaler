@@ -29,11 +29,11 @@ import (
 )
 
 const (
-	coreWeaveGroup       = "compute.coreweave.com"
-	coreWeaveVersion     = "v1alpha1"
-	coreWeaveResource    = "nodepools"
-	coreWeaveNodePoolUID = "compute.coreweave.com/node-pool-uid"
-	coreWeaveRemoveNode  = "compute.coreweave.com/remove-node"
+	coreWeaveGroup        = "compute.coreweave.com"
+	coreWeaveVersion      = "v1alpha1"
+	coreWeaveResource     = "nodepools"
+	coreWeaveNodePoolName = "compute.coreweave.com/node-pool"
+	coreWeaveNodePoolUID  = "compute.coreweave.com/node-pool-uid"
 )
 
 // CoreWeaveNodeGroupResource is the GroupVersionResource for CoreWeave NodeGroup
