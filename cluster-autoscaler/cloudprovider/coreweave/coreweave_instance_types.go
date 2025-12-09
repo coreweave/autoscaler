@@ -38,6 +38,14 @@ type InstanceType struct {
 // InstanceTypes is a map of CoreWeave instance type names to their specifications.
 // This map should be populated with the actual instance types supported by CoreWeave.
 var InstanceTypes = map[string]*InstanceType{
+	"b200-8x": {
+		VCPU:               128,
+		MemoryKi:           2112277172,
+		GPU:                8,
+		EphemeralStorageKi: 30003181568,
+		Architecture:       "amd64",
+		MaxPods:            110,
+	},
 	"cd-gp-a192-genoa": {
 		VCPU:               192,
 		MemoryKi:           1583811548,
@@ -147,6 +155,14 @@ var InstanceTypes = map[string]*InstanceType{
 		MemoryKi:           1055337468,
 		GPU:                8,
 		EphemeralStorageKi: 7499362648,
+		Architecture:       "amd64",
+		MaxPods:            110,
+	},
+	"rtxp6000-8x": {
+		VCPU:               128,
+		MemoryKi:           1055335468,
+		GPU:                8,
+		EphemeralStorageKi: 30003181568,
 		Architecture:       "amd64",
 		MaxPods:            110,
 	},
